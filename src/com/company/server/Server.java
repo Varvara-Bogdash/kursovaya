@@ -8,23 +8,17 @@ import java.util.concurrent.*;
 public class Server {
     private static final String SETTINGS_FILE = "settings.txt";
     private int port;
-    private ServerSocket serverSocket;
-    private ExecutorService threadPool;
-    private List<ClientHandler> clients;
-    private FileWriter logFile;
+    private List<ClientHandler> clients = new CopyOnWriteArrayList<>();
+    private ExecutorService threadPool = Executors.newCachedThreadPool();
 
     public static void main(String[] args) {
         new Server().start();
     }
 
     public void start() {
-        readSettings();
-        clients = new CopyOnWriteArrayList<>();
-        threadPool = Executors.newCachedThreadPool();
+        loadSettings();
 
-        try {
-            serverSocket = new ServerSocket(port);
-            openLogFile();
+        try (ServerSocket serverSocket = new ServerSocket(port)) {
             System.out.println("Server started on port " + port);
 
             while (true) {
@@ -38,27 +32,18 @@ public class Server {
         }
     }
 
-    private void readSettings() {
-        try (BufferedReader reader = new BufferedReader(new FileReader(SETTINGS_FILE))) {
-            port = Integer.parseInt(reader.readLine().trim());
+    private void loadSettings() {
+        try (Scanner scanner = new Scanner(new File(SETTINGS_FILE))) {
+            port = Integer.parseInt(scanner.nextLine().trim());
         } catch (Exception e) {
             System.err.println("Using default port 12345");
             port = 12345;
         }
     }
 
-    private void openLogFile() throws IOException {
-        logFile = new FileWriter("server.log", true);
-    }
-
     public synchronized void broadcast(String message, ClientHandler sender) {
         String formatted = "[" + new Date() + "] " + message;
-        try {
-            logFile.write(formatted + "\n");
-            logFile.flush();
-        } catch (IOException e) {
-            System.err.println("Log error: " + e.getMessage());
-        }
+        logToFile("server.log", formatted);
 
         for (ClientHandler client : clients) {
             if (client != sender) {
@@ -71,5 +56,16 @@ public class Server {
         clients.remove(client);
         broadcast(client.getUsername() + " left the chat", null);
     }
+
+    private void logToFile(String filename, String message) {
+        try (FileWriter fw = new FileWriter(filename, true);
+             BufferedWriter bw = new BufferedWriter(fw);
+             PrintWriter out = new PrintWriter(bw)) {
+            out.println(message);
+        } catch (IOException e) {
+            System.err.println("Log error: " + e.getMessage());
+        }
+    }
+
 
 }

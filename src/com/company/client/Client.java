@@ -5,12 +5,8 @@ import java.util.*;
 
 public class Client {
     private static final String SETTINGS_FILE = "settings.txt";
-    private String serverAddress;
-    private int serverPort;
-    private Socket socket;
-    private PrintWriter out;
-    private BufferedReader in;
-    private FileWriter logFile;
+    private String serverAddress = "localhost";
+    private int serverPort = 12345;
     private String username;
 
     public static void main(String[] args) {
@@ -18,75 +14,64 @@ public class Client {
     }
 
     public void start() {
-        readSettings();
+        loadSettings();
 
-        try (BufferedReader console = new BufferedReader(new InputStreamReader(System.in))) {
+        try (Scanner scanner = new Scanner(System.in)) {
             System.out.print("Enter your name: ");
-            username = console.readLine();
+            username = scanner.nextLine();
 
-            socket = new Socket(serverAddress, serverPort);
-            out = new PrintWriter(socket.getOutputStream(), true);
-            in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-            logFile = new FileWriter("client.log", true);
+            try (Socket socket = new Socket(serverAddress, serverPort);
+                 PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+                 BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
 
-            out.println(username);
+                out.println(username);
 
-            new Thread(new IncomingMessageHandler()).start();
+                new Thread(() -> receiveMessages(in)).start();
 
-            String message;
-            while ((message = console.readLine()) != null) {
-                if ("/exit".equalsIgnoreCase(message)) {
-                    out.println("/exit");
-                    break;
+                String message;
+                while (true) {
+                    message = scanner.nextLine();
+                    if ("/exit".equalsIgnoreCase(message)) {
+                        out.println("/exit");
+                        break;
+                    }
+                    out.println(message);
+                    logToFile("client_" + username + ".log", "Sent: " + message);
                 }
-                log("Sent: " + message);
-                out.println(message);
             }
         } catch (IOException e) {
             System.err.println("Client error: " + e.getMessage());
-        } finally {
-            closeResources();
         }
     }
 
-    private void readSettings() {
-        try (BufferedReader reader = new BufferedReader(new FileReader(SETTINGS_FILE))) {
-            serverAddress = reader.readLine().trim();
-            serverPort = Integer.parseInt(reader.readLine().trim());
-        } catch (Exception e) {
-            System.err.println("Using default: localhost:12345");
-            serverAddress = "localhost";
-            serverPort = 12345;
-        }
-    }
-
-    private void log(String message) throws IOException {
-        String logEntry = "[" + new Date() + "] " + message;
-        logFile.write(logEntry + "\n");
-        logFile.flush();
-    }
-
-    private void closeResources() {
+    private void receiveMessages(BufferedReader in) {
         try {
-            if (socket != null) socket.close();
-            if (logFile != null) logFile.close();
+            String message;
+            while ((message = in.readLine()) != null) {
+                System.out.println(message);
+                logToFile("client_" + username + ".log", "Received: " + message);
+            }
         } catch (IOException e) {
-            System.err.println("Resource close error: " + e.getMessage());
+            System.out.println("Disconnected from server");
         }
     }
 
-    private class IncomingMessageHandler implements Runnable {
-        @Override
-        public void run() {
-            try {
-                String message;
-                while ((message = in.readLine()) != null) {
-                    System.out.println(message);
-                    log("Received: " + message);
-                }
-            } catch (IOException e) {
-                System.out.println("Disconnected from server");
-            }
+    private void loadSettings() {
+        try (Scanner scanner = new Scanner(new File(SETTINGS_FILE))) {
+            serverAddress = scanner.nextLine().trim();
+            serverPort = Integer.parseInt(scanner.nextLine().trim());
+        } catch (Exception e) {
+            System.err.println("Using default settings (localhost:12345)");
+        }
+    }
+
+    private void logToFile(String filename, String message) {
+        try (FileWriter fw = new FileWriter(filename, true);
+             BufferedWriter bw = new BufferedWriter(fw);
+             PrintWriter out = new PrintWriter(bw)) {
+            out.println("[" + new Date() + "] " + message);
+        } catch (IOException e) {
+            System.err.println("Log error: " + e.getMessage());
         }
     }
 }
